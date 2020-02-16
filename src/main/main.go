@@ -34,7 +34,10 @@ func main() {
 	fmt.Println("Server started..")
 	e := echo.New()
 	g := e.Group("/user")
-	g.Use(middleware.Logger())
+
+	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: `[${time_rfc3339}] ${status} ${method} ${host}${path} ${latency_human}` + "\n",
+	}))
 
 	e.GET("/", landing)
 	e.GET("/person", getUser)
