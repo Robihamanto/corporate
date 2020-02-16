@@ -30,10 +30,20 @@ type Car struct {
 	Color string "json:color"
 }
 
+// ServerHeader Set header for middleware
+func ServerHeader(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		c.Response().Header().Set(echo.HeaderServer, "Staging")
+		c.Response().Header().Set("Version", "1")
+		return next(c)
+	}
+}
+
 func main() {
 	fmt.Println("Server started..")
 	e := echo.New()
-	g := e.Group("/user")
+	e.Use(ServerHeader)
+	g := e.Group("/admin")
 
 	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `[${time_rfc3339}] ${status} ${method} ${host}${path} ${latency_human}` + "\n",
@@ -48,16 +58,22 @@ func main() {
 		return false, nil
 	}))
 
+	g.GET("/", homeAdmin)
+
 	e.GET("/", landing)
 	e.GET("/person", getUser)
 	e.POST("/person", addUser)
 	e.POST("/address", addAddress)
 	e.POST("/car", addCar)
 
-	g.GET("/address", getAddress)
-
 	e.Start(":8000")
 
+}
+
+func homeAdmin(c echo.Context) error {
+	return c.JSON(http.StatusBadRequest, map[string]string{
+		"message": "You're logged in",
+	})
 }
 
 func getAddress(c echo.Context) error {
