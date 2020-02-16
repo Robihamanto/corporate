@@ -6,6 +6,7 @@ import (
 	"io/ioutil"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
@@ -40,25 +41,26 @@ func ServerHeader(next echo.HandlerFunc) echo.HandlerFunc {
 }
 
 func main() {
-	fmt.Println("Server started..")
 	e := echo.New()
 	e.Use(ServerHeader)
-	g := e.Group("/admin")
+	adminGroup := e.Group("/admin")
 
-	g.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+	adminGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `[${time_rfc3339}] ${status} ${method} ${host}${path} ${latency_human}` + "\n",
 	}))
 
-	g.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
-		if username == "admin" && password == "admin" {
-			//log.Println("Users successfully logged in")
-			return true, nil
-		}
-		//log.Println("Username or password error")
-		return false, nil
-	}))
+	// adminGroup.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
+	// 	if username == "admin" && password == "admin" {
+	// 		log.Println("Users successfully logged in")
+	// 		return true, nil
+	// 	}
+	// 	log.Println("Username or password error")
+	// 	return false, nil
+	// }))
 
-	g.GET("/", homeAdmin)
+	//adminGroup.Use(checkCookie)
+	adminGroup.GET("/", homeAdmin, checkCookie)
+	adminGroup.GET("/login", loginAdmin)
 
 	e.GET("/", landing)
 	e.GET("/person", getUser)
@@ -70,9 +72,56 @@ func main() {
 
 }
 
+func checkCookie(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c echo.Context) error {
+		cookie, err := c.Cookie("SessionID")
+		if err != nil {
+			log.Println("Check cookies: ", err)
+			return c.String(http.StatusUnauthorized, "You have to login first")
+		}
+
+		if cookie.Value == "token" {
+			log.Println("Token is valid")
+			return next(c)
+		}
+
+		log.Println("Token expired")
+		return c.String(http.StatusUnauthorized, "You don't have any cookie or cookie has beed expired")
+	}
+}
+
+func loginAdmin(c echo.Context) error {
+	username := c.QueryParam("username")
+	password := c.QueryParam("password")
+
+	// check account from db
+	if username == "admin" && password == "admin" {
+		// set login cookie
+		cookie := &http.Cookie{}
+		cookie.Name = "SessionID"
+		cookie.Value = "token"
+		cookie.Expires = time.Now().Add(24 * time.Hour)
+
+		c.SetCookie(cookie)
+
+		return c.JSON(http.StatusOK, map[string]string{
+			"message": "You're logged in",
+		})
+	}
+
+	return c.JSON(http.StatusUnauthorized, map[string]string{
+		"error": "Username or password were wrong",
+	})
+
+}
+
+func adminCookie(c echo.Context) error {
+	return c.String(http.StatusOK, "you're not logged in")
+}
+
 func homeAdmin(c echo.Context) error {
-	return c.JSON(http.StatusBadRequest, map[string]string{
-		"message": "You're logged in",
+	return c.JSON(http.StatusOK, map[string]string{
+		"message": "You're logged in to scret cookie page",
 	})
 }
 
