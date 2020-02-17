@@ -8,27 +8,34 @@ import (
 	"net/http"
 	"time"
 
+	jwt "github.com/dgrijalva/jwt-go"
 	"github.com/labstack/echo"
 	"github.com/labstack/echo/middleware"
 )
 
 // User for define
 type User struct {
-	Name string "json:name"
-	Age  int    "json:age"
+	Name string `json:"name"`
+	Age  int    `json:"age"`
 }
 
 // Address of users
 type Address struct {
-	User       int    "json:user"
-	Street     string "json:street"
-	PostalCode int    "json:postalCode"
+	User       int    `json:"user"`
+	Street     string `json:"street"`
+	PostalCode int    `json:"postalCode"`
 }
 
 // Car has owned by users
 type Car struct {
-	User  int    "json:user"
-	Color string "json:color"
+	User  int    `json:"user"`
+	Color string `json:"color"`
+}
+
+//JwtClaims for user credentials
+type JwtClaims struct {
+	Name string `json:"name"`
+	jwt.StandardClaims
 }
 
 // ServerHeader Set header for middleware
@@ -44,32 +51,63 @@ func main() {
 	e := echo.New()
 	e.Use(ServerHeader)
 	adminGroup := e.Group("/admin")
-
+	jwtGroup := e.Group("/jwt")
+	e.Use(middleware.Static("../static"))
 	adminGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
 		Format: `[${time_rfc3339}] ${status} ${method} ${host}${path} ${latency_human}` + "\n",
 	}))
+	jwtGroup.Use(middleware.LoggerWithConfig(middleware.LoggerConfig{
+		Format: `[${time_rfc3339}] ${status} ${method} ${host}${path} ${latency_human}` + "\n",
+	}))
 
-	// adminGroup.Use(middleware.BasicAuth(func(username, password string, c echo.Context) (bool, error) {
-	// 	if username == "admin" && password == "admin" {
-	// 		log.Println("Users successfully logged in")
-	// 		return true, nil
-	// 	}
-	// 	log.Println("Username or password error")
-	// 	return false, nil
+	// jwtGroup.Use(middleware.JWTWithConfig(middleware.JWTConfig{
+	// 	SigningMethod: "HS512",
+	// 	SigningKey:    []byte("asDf#$#!@#0~!o"),
+	// 	TokenLookup:   "cookie:JWTCookie",
 	// }))
 
+	// jwtGroup.Use(middleware.JWTWithConfig(middleware.JWTConfig{
+	// 	SigningMethod: "HS512",
+	// 	SigningKey:    []byte("asDf#$#!@#0~!o"),
+	// 	TokenLookup:   "header:Authorization",
+	// 	AuthScheme:    "Bearer",
+	// }))
+
+	//jwtGroup.Use(checkCookie)
 	//adminGroup.Use(checkCookie)
+
 	adminGroup.GET("/", homeAdmin, checkCookie)
 	adminGroup.GET("/login", loginAdmin)
 
-	e.GET("/", landing)
+	jwtGroup.GET("/main", getJwtHome)
+
 	e.GET("/person", getUser)
+
 	e.POST("/person", addUser)
 	e.POST("/address", addAddress)
 	e.POST("/car", addCar)
+	e.POST("/home", homePage)
 
 	e.Start(":8000")
 
+}
+
+func createJwtToken() (string, error) {
+	claims := JwtClaims{
+		"anwar",
+		jwt.StandardClaims{
+			Id:        "user_id",
+			ExpiresAt: time.Now().Add(24 * time.Hour).Unix(),
+		},
+	}
+
+	rawToken := jwt.NewWithClaims(jwt.SigningMethodHS512, claims)
+	token, err := rawToken.SignedString([]byte("asDf#$#!@#0~!o"))
+	if err != nil {
+		log.Print("failed generating JWT token")
+		return "", err
+	}
+	return token, nil
 }
 
 func checkCookie(next echo.HandlerFunc) echo.HandlerFunc {
@@ -101,11 +139,25 @@ func loginAdmin(c echo.Context) error {
 		cookie.Name = "SessionID"
 		cookie.Value = "token"
 		cookie.Expires = time.Now().Add(24 * time.Hour)
-
 		c.SetCookie(cookie)
+
+		token, err := createJwtToken()
+		if err != nil {
+			return c.JSON(http.StatusInternalServerError, map[string]string{
+				"message": "something happened in our server :(",
+			})
+		}
+
+		// set JWT login cookie
+		cookieJwt := &http.Cookie{}
+		cookieJwt.Name = "JWTCookie"
+		cookieJwt.Value = token
+		cookieJwt.Expires = time.Now().Add(24 * time.Hour)
+		c.SetCookie(cookieJwt)
 
 		return c.JSON(http.StatusOK, map[string]string{
 			"message": "You're logged in",
+			"token":   token,
 		})
 	}
 
@@ -149,8 +201,21 @@ func getAddress(c echo.Context) error {
 	})
 }
 
+func homePage(c echo.Context) error {
+	return c.String(http.StatusOK, "Hi this is the server run")
+}
+
 func landing(c echo.Context) error {
 	return c.String(http.StatusOK, "Hi this is the server run")
+}
+
+func getJwtHome(c echo.Context) error {
+	// user := c.Get("user")
+	// token := user.(*jwt.Token)
+	// claims := token.Claims.(jwt.MapClaims)
+	// log.Println("Username: ", claims["name"], "User ID: ", claims["jti"])
+
+	return c.String(http.StatusOK, "You're in jwt secret home")
 }
 
 func getUser(c echo.Context) error {
@@ -232,4 +297,11 @@ func addAddress(c echo.Context) error {
 		"message": "User succesffully added",
 	})
 
+}
+
+func unauthorized(c echo.Context) error {
+	log.Println("Unauthorized")
+	return c.JSON(http.StatusUnauthorized, map[string]string{
+		"message": "Invalid bearer token or token has been expired",
+	})
 }
